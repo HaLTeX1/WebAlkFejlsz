@@ -3,12 +3,33 @@
 @using GdeWebModels
 @using Microsoft.JSInterop
 @using MudBlazor
+@using System.Timers
 
 @inject IJSRuntime jsRuntime
+@implements IDisposable
 
 <style>
     .mud-dialog-content {
         align-content: center;
+    }
+    /* Animáció a lejáró időhöz */
+    .time-warning {
+        animation: pulse 1s infinite;
+        color: var(--mud-palette-error);
+    }
+
+    @@keyframes pulse {
+        0% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+
+        100% {
+            opacity: 1;
+        }
     }
 </style>
 
@@ -17,7 +38,6 @@
 
         <div class="quizcard-wrapper" style="display:grid;gap:16px;max-width:720px;margin:auto;">
 
-            <!-- SFX – előtöltve -->
             <audio id="sfx-level-start" src="/sfx/level_start.mp3" preload="auto"></audio>
             <audio id="sfx-level-complete" src="/sfx/level_complete.mp3" preload="auto"></audio>
             <audio id="sfx-answer-success" src="/sfx/answer_success.mp3" preload="auto"></audio>
@@ -27,11 +47,19 @@
             {
                 <div class="card" style="padding:20px;border-radius:16px;box-shadow:0 4px 18px rgba(0,0,0,.08);">
                     <div style="display:flex;flex-direction:column;gap:12px;align-items:center;">
-                        <div style="font-weight:800;font-size:22px;">Eredmény</div>
+                        <div style="font-weight:800;font-size:22px;">
+                            @(IsTimeUp ? "Lejárt az idő!" : "Eredmény")
+                        </div>
+
                         <div style="opacity:.8;">Pontszám: <strong>@Score</strong> / @Total</div>
                         <div style="opacity:.8;">Helyes válaszok aránya: <strong>@(Math.Round(100.0 * Score / Math.Max(1, Total)))%</strong></div>
                         <div class="controls" style="display:flex;gap:8px;margin-top:8px;margin: auto;">
-                            <MudButton OnClick="ResetAll" Color="Color.Default" Variant="Variant.Outlined" Style="width:110px;">Újrakezdés</MudButton>
+
+                            @if (!IsExamMode)
+                            {
+                                <MudButton OnClick="ResetAll" Color="Color.Default" Variant="Variant.Outlined" Style="width:110px;">Újrakezdés</MudButton>
+                            }
+
                             <MudButton OnClick="Finish" Color="Color.Success" Variant="Variant.Filled" Style="width:110px;">Befejezés</MudButton>
                         </div>
                     </div>
@@ -70,6 +98,14 @@
                 <div class="card question-card" style="padding:16px;border-radius:16px;box-shadow:0 4px 18px rgba(0,0,0,.08);">
                     <div class="flex" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                         <div style="font-weight:700;font-size:20px;">Kérdés @(CurrentIndex + 1) / @Total</div>
+
+                        @if (IsExamMode)
+                        {
+                            <div class="@(_timeLeft < 30 ? "time-warning" : "")" style="font-weight:800; font-size: 1.2rem; font-family: monospace;">
+                                ⏱️ @TimeSpan.FromSeconds(_timeLeft).ToString(@"mm\:ss")
+                            </div>
+                        }
+
                         <div style="opacity:.7;">Pont: <strong>@Score</strong></div>
                     </div>
                     <div class="mt-2" style="margin-top:8px;font-size:18px;">
@@ -90,7 +126,8 @@
                         var wrongStyle = (Answered && i == SelectedIndex && i != correctIndex) ? "outline:2px solid #f05252;background:#fef2f2;" : "";
                         var answerStyle = baseStyle + " " + correctStyle + " " + wrongStyle;
                         var cls = $"answer-card {(isWrong ? "shake" : "")}";
-                        var idx = i; // closure fix
+                        var idx = i;
+                        // closure fix
 
                         <style>
                             .mud-button-label {
@@ -104,7 +141,7 @@
                                    Style="@($"{baseStyle}{correctStyle}{wrongStyle}")"
                                    Variant="Variant.Text"
                                    Color="Color.Default"
-                                   FullWidth="true" >
+                                   FullWidth="true">
 
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <div style="width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:#f4f4f5;font-weight:700;">
@@ -119,7 +156,12 @@
 
                 <div class="controls" style="display:flex;justify-content:space-between;gap:12px;width:100%;">
                     <MudButton OnClick="CancelQuiz" Color="Color.Default" Variant="Variant.Outlined" Style="@(MainLayout.isMobile ? "overflow-wrap: anywhere;" : "overflow-wrap: anywhere; font-size: 0.8rem;")">Megszakítás</MudButton>
-                    <MudButton OnClick="ResetAll" Color="Color.Default" Variant="Variant.Outlined" Style="@(MainLayout.isMobile ? "overflow-wrap: anywhere;" : "overflow-wrap: anywhere; font-size: 0.8rem;")">Újrakezdés (újrakeverve)</MudButton>
+
+                    @if (!IsExamMode)
+                    {
+                        <MudButton OnClick="ResetAll" Color="Color.Default" Variant="Variant.Outlined" Style="@(MainLayout.isMobile ? "overflow-wrap: anywhere;" : "overflow-wrap: anywhere; font-size: 0.8rem;")">Újrakezdés (újrakeverve)</MudButton>
+                    }
+
                     <MudButton OnClick="Next" Disabled="@(!Answered)" Color="Color.Success" Variant="Variant.Filled" Style="@(MainLayout.isMobile ? "overflow-wrap: anywhere;" : "overflow-wrap: anywhere; font-size: 0.8rem;")">Következő</MudButton>
                 </div>
 
@@ -148,6 +190,9 @@
     [Parameter] public CourseModel? Course { get; set; } = new();
     [Parameter] public bool ShuffleQuestions { get; set; } = true;
     [Parameter] public bool ShuffleOptions { get; set; } = true;
+
+    // --- ÚJ PARAMÉTER A VIZSGA MÓDHOZ ---
+    [Parameter] public bool IsExamMode { get; set; } = true;
 
     // Napi kvíz újrasorsolás a parenttől (opcionális)
     [Parameter] public Func<Task<List<QuizModel>>>? DailyRefreshCallback { get; set; }
@@ -184,8 +229,13 @@
     private List<(string Text, bool IsCorrect)> CurrentOptions => Current.Options;
 
     private int Total => Questions.Count;
-
     private bool SoundsOn { get; set; } = true;
+
+    // --- IDŐZÍTŐ VÁLTOZÓK ---
+    private System.Timers.Timer? _timer;
+    private int _timeLeft;
+    private bool IsTimeUp = false;
+    private const int SecondsPerQuestion = 2; // Pl. 60mp per kérdés
 
     private int ProgressValue
         => Phase switch
@@ -206,6 +256,8 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // Csak akkor építjük újra, ha még üres, vagy explicit hívás történt.
+        // Itt egyszerűsítve minden Set-nél újrahívjuk a logikát.
         RebuildQuestions(Items);
 
         // Induláskor az első kérdés felolvasása
@@ -219,8 +271,8 @@
     private void RebuildQuestions(IEnumerable<QuizModel> input)
     {
         var rng = new Random();
-
         var list = new List<(QuizModel Source, List<(string Text, bool IsCorrect)> Options)>();
+
         foreach (var m in input ?? Enumerable.Empty<QuizModel>())
         {
             var opts = new List<(string Text, bool IsCorrect)>();
@@ -261,9 +313,68 @@
         WrongShakeIndex = -1;
         ShowCelebration = false;
         Phase = (Questions.Count > 0) ? PhaseState.Quiz : PhaseState.Finished;
+        IsTimeUp = false;
+
+        // --- IDŐZÍTŐ INDÍTÁSA ---
+        if (IsExamMode && Phase == PhaseState.Quiz)
+        {
+            StartTimer();
+        }
+        else
+        {
+            StopTimer();
+        }
 
         StateHasChanged();
     }
+
+    // --- IDŐZÍTŐ LOGIKA ---
+    private void StartTimer()
+    {
+        StopTimer(); // Biztonsági stop
+        if (Total > 0)
+        {
+            _timeLeft = Total * SecondsPerQuestion; // Pl. 10 kérdés * 60 mp = 600 mp
+            _timer = new System.Timers.Timer(1000);
+            _timer.Elapsed += async (sender, e) => await OnTimerTick();
+            _timer.AutoReset = true;
+            _timer.Start();
+        }
+    }
+
+    private void StopTimer()
+    {
+        if (_timer != null)
+        {
+            _timer.Stop();
+            _timer.Dispose();
+            _timer = null;
+        }
+    }
+
+    private async Task OnTimerTick()
+    {
+        if (_timeLeft > 0)
+        {
+            _timeLeft--;
+            await InvokeAsync(StateHasChanged);
+        }
+        else
+        {
+            // Lejárt az idő
+            StopTimer();
+            IsTimeUp = true;
+            Phase = PhaseState.Finished;
+            _ = PlayFinishAnimations(); // Zene + konfetti
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        StopTimer();
+    }
+    // -----------------------
 
     private async Task OnSelect(int i)
     {
@@ -273,12 +384,11 @@
         Answered = true;
 
         var correctIndex = CurrentOptions.FindIndex(o => o.IsCorrect);
+
         if (i == correctIndex)
         {
             Score += 1;
-
             Current.Source.QuizSelected = CurrentOptions[i].Text;
-
             await TriggerSuccess(autoNext: true);
         }
         else
@@ -344,6 +454,7 @@
         else
         {
             Phase = PhaseState.Finished;
+            StopTimer(); // Ha kész, megállítjuk az órát
             _ = PlayFinishAnimations();
         }
     }
@@ -359,6 +470,9 @@
 
     private async Task ResetAll()
     {
+        // Vizsga módban elvileg el van rejtve a gomb, de biztonságból:
+        if (IsExamMode) return;
+
         // Napi kvíz: parenttől kérünk új sorsolást
         if (string.IsNullOrEmpty(Course?.CourseTitle) && DailyRefreshCallback is not null)
         {
@@ -372,14 +486,12 @@
         }
 
         Phase = PhaseState.Quiz;
-
         if (Total > 0 && SoundsOn)
             await MainLayout.PlayTtsAsync(CurrentQuestionText);
     }
 
     private void CancelQuiz()
     {
-        // Semmi mentés, sima Cancel a dialogon
         MudDialog.Cancel();
     }
 
@@ -393,7 +505,6 @@
             DailyQuiz = string.IsNullOrEmpty(Course?.CourseTitle) ? true : false,
             ModificationDate = DateTime.Now
         };
-
         MudDialog.Close(DialogResult.Ok(model));
     }
 

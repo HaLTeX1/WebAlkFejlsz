@@ -360,6 +360,7 @@
             ["ShuffleQuestions"] = true,
             ["ShuffleOptions"] = true,
             // napi kvízhez: a dialog ezt hívja ResetAll esetén, ha nincs CourseTitle
+            ["IsExamMode"] = true, // VIZSGA TESZTELÉSHEZ ÁLLÍTSUK TRUE ÉRTÉKRE!!
             ["DailyRefreshCallback"] = (Func<Task<List<QuizModel>>>)GetDailyQuizzesForDialog
         };
 
